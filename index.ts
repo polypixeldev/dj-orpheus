@@ -39,26 +39,37 @@ function getAccessToken() {
 
 getAccessToken();
 
-app.command("/song", async ({ ack, body, client, respond }) => {
-  await ack();
+async function processRequest(
+  type: "track" | "album",
+  ctx: Slack.SlackCommandMiddlewareArgs & Slack.AllMiddlewareArgs
+) {
+  const { body, respond } = ctx;
 
-  const songQuery = body.text;
+  const itemQuery = body.text;
 
-  const trackRes = await spotify.searchTracks(`track:${songQuery}`, {
+  const itemRes = await (type === "track"
+    ? spotify.searchTracks
+    : spotify.searchAlbums
+  ).bind(spotify)(itemQuery, {
     limit: 1,
   });
-  const song = trackRes.body.tracks?.items[0];
+  const item =
+    type === "track"
+      ? itemRes.body.tracks?.items[0]
+      : itemRes.body.albums?.items[0];
 
-  if (!song) {
-    await respond(`No songs found for "${songQuery}"!`);
+  if (!item) {
+    await respond(`No ${type}s found for "${itemQuery}"!`);
     return;
   }
 
   const songlinkRes = await fetch(
-    `https://api.song.link/v1-alpha.1/links?songIfSingle=true&platform=spotify&type=song&id=${song.id}`
+    `https://api.song.link/v1-alpha.1/links?songIfSingle=true&platform=spotify&type=${
+      type === "track" ? "song" : "album"
+    }&id=${item.id}`
   ).then((r) => r.json());
 
-  const artist = song.artists.map((a) => a.name).join(", ");
+  const artist = item.artists.map((a) => a.name).join(", ");
 
   let linkText = "";
 
@@ -75,8 +86,56 @@ app.command("/song", async ({ ack, body, client, respond }) => {
     attachments: [
       {
         color: "#007A5A",
-        fallback: `${song.name} by ${artist}`,
-        title: `<@${body.user_id}> shared ${song.name} by ${artist}!`,
+        fallback: `${item.name} by ${artist}`,
+        title: `<@${body.user_id}> shared the ${
+          type === "track" ? "song" : "album"
+        } "${item.name}" by ${artist}!`,
+        text: linkText,
+        mrkdwn_in: ["text"],
+      },
+    ],
+  });
+}
+
+app.command("/song", async (ctx) => {
+  await ctx.ack();
+
+  await processRequest("track", ctx);
+});
+
+app.command("/album", async (ctx) => {
+  await ctx.ack();
+
+  await processRequest("album", ctx);
+});
+
+app.command("/artist", async (ctx) => {
+  await ctx.ack();
+
+  const { body, respond } = ctx;
+
+  const artistQuery = body.text;
+
+  const artistRes = await spotify.searchArtists(artistQuery, {
+    limit: 1,
+  });
+  const artist = artistRes.body.artists?.items[0];
+
+  if (!artist) {
+    await respond(`No artists found for "${artistQuery}"!`);
+    return;
+  }
+
+  const linkText = `<${artist.external_urls.spotify}|Spotify>`;
+
+  await app.client.chat.postMessage({
+    channel: body.channel_id,
+    text: "",
+    attachments: [
+      {
+        color: "#007A5A",
+        fallback: `Artist ${artist.name}`,
+        title: `<@${body.user_id}> shared the artist "${artist.name}"!`,
         text: linkText,
         mrkdwn_in: ["text"],
       },
