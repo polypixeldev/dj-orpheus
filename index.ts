@@ -12,7 +12,7 @@ const PLATFORM_MAPPINGS = {
 const app = new Slack.App({
   appToken: process.env.SLACK_APP_TOKEN,
   token: process.env.SLACK_BOT_TOKEN,
-  socketMode: true,
+  signingSecret: process.env.SLACK_SIGNING_SECRET
 });
 
 const spotify = new Spotify({
@@ -144,7 +144,7 @@ app.command("/artist", async (ctx) => {
 });
 
 (async () => {
-  await app.start();
+  await app.start(process.env.PORT ?? 3000);
 
   console.log("⚡️ Bolt app is running!");
 })();
