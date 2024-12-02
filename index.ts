@@ -21,7 +21,7 @@ const spotify = new Spotify({
 });
 
 function getAccessToken() {
-  spotify.clientCredentialsGrant().then(
+  return spotify.clientCredentialsGrant().then(
     (data) => {
       console.log(
         `Acquired Spotify access token, expiring in ${data.body.expires_in} seconds.`
@@ -47,12 +47,29 @@ async function processRequest(
 
   const itemQuery = body.text;
 
-  const itemRes = await (type === "track"
-    ? spotify.searchTracks
-    : spotify.searchAlbums
-  ).bind(spotify)(itemQuery, {
-    limit: 1,
-  });
+  let itemRes;
+  try {
+    itemRes = await (type === "track"
+      ? spotify.searchTracks
+      : spotify.searchAlbums
+    ).bind(spotify)(itemQuery, {
+      limit: 1,
+    });
+  } catch (e) {
+    if ((e as any).statusCode == 401) {
+      await getAccessToken()
+
+      itemRes = await (type === "track"
+        ? spotify.searchTracks
+        : spotify.searchAlbums
+      ).bind(spotify)(itemQuery, {
+        limit: 1,
+      });
+    } else {
+      throw e
+    }
+  }
+
   const item =
     type === "track"
       ? itemRes.body.tracks?.items[0]
@@ -116,9 +133,23 @@ app.command("/artist", async (ctx) => {
 
   const artistQuery = body.text;
 
-  const artistRes = await spotify.searchArtists(artistQuery, {
-    limit: 1,
-  });
+  let artistRes;
+  try {
+    artistRes = await spotify.searchArtists(artistQuery, {
+      limit: 1,
+    });
+  } catch (e) {
+    if ((e as any).statusCode == 401) {
+      await getAccessToken()
+
+      artistRes = await spotify.searchArtists(artistQuery, {
+        limit: 1,
+      });
+    } else {
+      throw e
+    }
+  }
+
   const artist = artistRes.body.artists?.items[0];
 
   if (!artist) {
