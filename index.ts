@@ -39,45 +39,46 @@ function getAccessToken() {
 
 getAccessToken();
 
-async function processRequest(
-  type: "track" | "album",
-  ctx: Slack.SlackCommandMiddlewareArgs & Slack.AllMiddlewareArgs
-) {
-  const { body, respond } = ctx;
-
-  const itemQuery = body.text;
-
-  let itemRes;
-  try {
-    itemRes = await (type === "track"
-      ? spotify.searchTracks
-      : spotify.searchAlbums
-    ).bind(spotify)(itemQuery, {
-      limit: 1,
-    });
-  } catch (e) {
-    if ((e as any).statusCode == 401) {
-      await getAccessToken()
-
+async function processAttachment(type: "track" | "album", user: string, spotifyId?: string, query?: string) {
+  let item;
+  if (spotifyId) {
+    if (type === "track") {
+      item = (await spotify.getTrack(spotifyId)).body;
+    } else {
+      item = (await spotify.getAlbum(spotifyId)).body;
+    }
+  } else if (query) {
+    let itemRes;
+    try {
       itemRes = await (type === "track"
         ? spotify.searchTracks
         : spotify.searchAlbums
-      ).bind(spotify)(itemQuery, {
+      ).bind(spotify)(query, {
         limit: 1,
       });
-    } else {
-      throw e
+    } catch (e) {
+      if ((e as any).statusCode == 401) {
+        await getAccessToken()
+  
+        itemRes = await (type === "track"
+          ? spotify.searchTracks
+          : spotify.searchAlbums
+        ).bind(spotify)(query, {
+          limit: 1,
+        });
+      } else {
+        throw e
+      }
     }
+  
+    item =
+      type === "track"
+        ? itemRes.body.tracks?.items[0]
+        : itemRes.body.albums?.items[0];
   }
 
-  const item =
-    type === "track"
-      ? itemRes.body.tracks?.items[0]
-      : itemRes.body.albums?.items[0];
-
   if (!item) {
-    await respond(`No ${type}s found for "${itemQuery}"!`);
-    return;
+    throw Error(`No ${type}s found for "${query}"!`);
   }
 
   const songlinkRes = await fetch(
@@ -97,20 +98,41 @@ async function processRequest(
     linkText += `<${platformLink.url}|${PLATFORM_MAPPINGS[platform]}>\t`;
   }
 
+  return [
+    {
+      color: "#007A5A",
+      fallback: `${item.name} by ${artist}`,
+      title: `<@${user}> shared the ${
+        type === "track" ? "song" : "album"
+      } "${item.name}" by ${artist}!`,
+      text: linkText,
+      mrkdwn_in: ["text" as const],
+    },
+  ]
+}
+
+async function processRequest(
+  type: "track" | "album",
+  ctx: (Slack.SlackCommandMiddlewareArgs | Slack.SlackEventMiddlewareArgs) & Slack.AllMiddlewareArgs,
+  spotifyId?: string
+) {
+  const { body } = ctx;
+
+  const itemQuery = body.text;
+
+  let attachments;
+  try {
+    attachments = await processAttachment(type, body.user_id, spotifyId, itemQuery);
+  } catch (e) {
+    if ("respond" in ctx) {
+      await ctx.respond(e as any as string);
+    }
+  }
+
   await app.client.chat.postMessage({
     channel: body.channel_id,
     text: "",
-    attachments: [
-      {
-        color: "#007A5A",
-        fallback: `${item.name} by ${artist}`,
-        title: `<@${body.user_id}> shared the ${
-          type === "track" ? "song" : "album"
-        } "${item.name}" by ${artist}!`,
-        text: linkText,
-        mrkdwn_in: ["text"],
-      },
-    ],
+    attachments,
   });
 }
 
@@ -172,6 +194,30 @@ app.command("/artist", async (ctx) => {
       },
     ],
   });
+});
+
+app.event("link_shared", async (ctx) => {
+  for (const link of ctx.event.links) {
+    const typeMatch = link.url.match(/open\.spotify\.com\/(track|album)/);
+    const type = typeMatch?.[1];
+    if (type) {
+      const songIdRes = link.url.match(/(?<=open\.spotify.com\/(track|album)\/)((\w|\d)+)/) ?? [];
+      const songId = songIdRes[0];
+
+      if (songId) {
+        const attachments = await processAttachment(type as "track" | "album", ctx.event.user, songId);
+
+        ctx.client.chat.unfurl({
+          channel: ctx.event.channel,
+          unfurl_id: ctx.event.unfurl_id!,
+          source: ctx.event.source as "composer" | "conversations_history",
+          unfurls: {
+            [link.url]: attachments[0]
+          }
+        })
+      }
+    }
+  }
 });
 
 (async () => {
