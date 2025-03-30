@@ -223,5 +223,5 @@ app.event("link_shared", async (ctx) => {
 (async () => {
   await app.start(process.env.PORT ?? 3000);
 
-  console.log("⚡️ Bolt app is running!");
+  console.log(`⚡️ Bolt app is running on port ${process.env.PORT}!`);
 })();
