@@ -136,21 +136,21 @@ async function processRequest(
   });
 }
 
-app.command("/song", async (ctx) => {
+app.command("/a-song", async (ctx) => {
   console.log("acking /song")
   await ctx.ack();
 
   await processRequest("track", ctx);
 });
 
-app.command("/album", async (ctx) => {
+app.command("/a-album", async (ctx) => {
   console.log("acking /album")
   await ctx.ack();
 
   await processRequest("album", ctx);
 });
 
-app.command("/artist", async (ctx) => {
+app.command("/a-artist", async (ctx) => {
   console.log("acking /artist")
   await ctx.ack();
 
