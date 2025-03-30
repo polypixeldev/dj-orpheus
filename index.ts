@@ -137,22 +137,19 @@ async function processRequest(
   });
 }
 
-app.command("/a-song", async (ctx) => {
-  console.log("acking /song")
+app.command("/song", async (ctx) => {
   await ctx.ack();
 
   await processRequest("track", ctx);
 });
 
-app.command("/a-album", async (ctx) => {
-  console.log("acking /album")
+app.command("/album", async (ctx) => {
   await ctx.ack();
 
   await processRequest("album", ctx);
 });
 
-app.command("/a-artist", async (ctx) => {
-  console.log("acking /artist")
+app.command("/artist", async (ctx) => {
   await ctx.ack();
 
   const { body, respond } = ctx;
@@ -201,7 +198,6 @@ app.command("/a-artist", async (ctx) => {
 });
 
 app.event("link_shared", async (ctx) => {
-  console.log("link found :0")
   for (const link of ctx.event.links) {
     const typeMatch = link.url.match(/open\.spotify\.com\/(track|album)/);
     const type = typeMatch?.[1];
