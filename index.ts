@@ -1,4 +1,4 @@
-import Slack from "@slack/bolt";
+import Slack, { LogLevel } from "@slack/bolt";
 import Spotify from "spotify-web-api-node";
 import "dotenv/config";
 
@@ -12,7 +12,8 @@ const PLATFORM_MAPPINGS = {
 const app = new Slack.App({
   appToken: process.env.SLACK_APP_TOKEN,
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: true,
 });
 
 const spotify = new Spotify({
@@ -196,11 +197,20 @@ app.command("/artist", async (ctx) => {
   });
 });
 
+function toTitleCase(str: string) {
+  return str.replace(
+    /\w\S*/g,
+    text => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase()
+  );
+}
+
 app.event("link_shared", async (ctx) => {
   for (const link of ctx.event.links) {
-    const typeMatch = link.url.match(/open\.spotify\.com\/(track|album)/);
-    const type = typeMatch?.[1];
-    if (type) {
+    const spotifyMatch = link.url.match(/open\.spotify\.com\/(track|album)/);
+    const appleMusicMatch = link.url.match(/music\.apple\.com\/\w+\/album\/([^\/]+)\/\d+\?i=\d+/);
+    
+    if (spotifyMatch) {
+      const type = spotifyMatch[1];
       const songIdRes = link.url.match(/(?<=open\.spotify.com\/(track|album)\/)((\w|\d)+)/) ?? [];
       const songId = songIdRes[0];
 
@@ -214,7 +224,22 @@ app.event("link_shared", async (ctx) => {
           unfurls: {
             [link.url]: attachments[0]
           }
-        })
+        });
+      }
+    } else if (appleMusicMatch) {
+      const query = toTitleCase(appleMusicMatch[1].replace(/-/g, " "));
+
+      if (query) {
+        const attachments = await processAttachment("track", ctx.event.user, undefined, query);
+
+        ctx.client.chat.unfurl({
+          channel: ctx.event.channel,
+          unfurl_id: ctx.event.unfurl_id!,
+          source: ctx.event.source as "composer" | "conversations_history",
+          unfurls: {
+            [link.url]: attachments[0]
+          }
+        });
       }
     }
   }
@@ -223,5 +248,5 @@ app.event("link_shared", async (ctx) => {
 (async () => {
   await app.start(process.env.PORT ?? 3000);
 
-  console.log("⚡️ Bolt app is running!");
+  console.log(`⚡️ Bolt app is running on port ${process.env.PORT || 3000}!`);
 })();
