@@ -137,7 +137,7 @@ async function processRequest(
   });
 }
 
-app.command("/song", async (ctx) => {
+app.command("/s", async (ctx) => {
   await ctx.ack();
 
   await processRequest("track", ctx);
