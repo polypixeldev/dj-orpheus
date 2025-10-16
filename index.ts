@@ -222,7 +222,7 @@ app.event("link_shared", async (ctx) => {
         let location = shareResponse.headers.get("Location")
 
         if (location) {
-          spotifyDirectMatch = link.url.match(SPOTIFY_DIRECT_REGEX);
+          spotifyDirectMatch = location.match(SPOTIFY_DIRECT_REGEX);
         }
       }
     }
