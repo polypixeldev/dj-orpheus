@@ -204,14 +204,32 @@ function toTitleCase(str: string) {
   );
 }
 
+const SPOTIFY_DIRECT_REGEX = /open\.spotify\.com\/(track|album)/
+const SPOTIFY_ID_REGEX = /(?<=open\.spotify.com\/(track|album)\/)((\w|\d)+)/
+const SPOTIFY_SHARE_REGEX = /spotify\.link\/\w+/
+const APPLE_MUSIC_REGEX = /music\.apple\.com\/\w+\/album\/([^\/]+)\/\d+\?i=\d+/
+
 app.event("link_shared", async (ctx) => {
   for (const link of ctx.event.links) {
-    const spotifyMatch = link.url.match(/open\.spotify\.com\/(track|album)/);
-    const appleMusicMatch = link.url.match(/music\.apple\.com\/\w+\/album\/([^\/]+)\/\d+\?i=\d+/);
+    let spotifyDirectMatch = link.url.match(SPOTIFY_DIRECT_REGEX);
+    const spotifyShareMatch = link.url.match(SPOTIFY_SHARE_REGEX)
+    const appleMusicMatch = link.url.match(APPLE_MUSIC_REGEX);
+
+    if (spotifyShareMatch) {
+      let shareResponse = await fetch(link.url, { redirect: "manual" });
+
+      if (shareResponse.status >= 300 && shareResponse.status < 400) {
+        let location = shareResponse.headers.get("Location")
+
+        if (location) {
+          spotifyDirectMatch = link.url.match(SPOTIFY_DIRECT_REGEX);
+        }
+      }
+    }
     
-    if (spotifyMatch) {
-      const type = spotifyMatch[1];
-      const songIdRes = link.url.match(/(?<=open\.spotify.com\/(track|album)\/)((\w|\d)+)/) ?? [];
+    if (spotifyDirectMatch) {
+      const type = spotifyDirectMatch[1];
+      const songIdRes = link.url.match(SPOTIFY_ID_REGEX) ?? [];
       const songId = songIdRes[0];
 
       if (songId) {
