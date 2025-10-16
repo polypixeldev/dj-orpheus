@@ -40,15 +40,12 @@ function getAccessToken() {
 
 getAccessToken();
 
-async function processAttachment(type: "track" | "album", user: string, spotifyId?: string, query?: string) {
-  let item;
-  if (spotifyId) {
-    if (type === "track") {
-      item = (await spotify.getTrack(spotifyId)).body;
-    } else {
-      item = (await spotify.getAlbum(spotifyId)).body;
-    }
-  } else if (query) {
+async function processAttachment(platform: string, type: "track" | "album", user: string, id?: string, query?: string) {
+  let resolvedId = id;
+
+  if (platform === "spotify" && query) {
+    let item;
+
     let itemRes;
     try {
       itemRes = await (type === "track"
@@ -76,36 +73,47 @@ async function processAttachment(type: "track" | "album", user: string, spotifyI
       type === "track"
         ? itemRes.body.tracks?.items[0]
         : itemRes.body.albums?.items[0];
-  }
 
-  if (!item) {
-    throw Error(`No ${type}s found for "${query}"!`);
+    if (!item) {
+      throw Error(`No ${type}s found for "${query}"!`);
+    }
+
+    resolvedId = item.id
   }
 
   const songlinkRes = await fetch(
-    `https://api.song.link/v1-alpha.1/links?songIfSingle=true&platform=spotify&type=${
+    `https://api.song.link/v1-alpha.1/links?songIfSingle=true&platform=${platform}&type=${
       type === "track" ? "song" : "album"
-    }&id=${item.id}`
+    }&id=${resolvedId}`
   ).then((r) => r.json());
 
-  const artist = item.artists.map((a) => a.name).join(", ");
-
   let linkText = "";
+
+  let entity;
 
   for (const platform in songlinkRes.linksByPlatform) {
     if (!(platform in PLATFORM_MAPPINGS)) continue;
 
     const platformLink = songlinkRes.linksByPlatform[platform];
     linkText += `<${platformLink.url}|${PLATFORM_MAPPINGS[platform]}>\t`;
+
+    if (!entity) {
+      const entityId = platformLink.entityUniqueId;
+      entity = songlinkRes.entitiesByUniqueId[entityId]
+    }
+  }
+
+  if (!entity) {
+    throw Error("No results found");
   }
 
   return [
     {
       color: "#007A5A",
-      fallback: `${item.name} by ${artist}`,
+      fallback: `${entity.title} by ${entity.artistName}`,
       title: `<@${user}> shared the ${
         type === "track" ? "song" : "album"
-      } "${item.name}" by ${artist}!`,
+      } "${entity.title}" by ${entity.artistName}!`,
       text: linkText,
       mrkdwn_in: ["text" as const],
     },
@@ -115,7 +123,6 @@ async function processAttachment(type: "track" | "album", user: string, spotifyI
 async function processRequest(
   type: "track" | "album",
   ctx: (Slack.SlackCommandMiddlewareArgs | Slack.SlackEventMiddlewareArgs) & Slack.AllMiddlewareArgs,
-  spotifyId?: string
 ) {
   const { body } = ctx;
 
@@ -123,7 +130,7 @@ async function processRequest(
 
   let attachments;
   try {
-    attachments = await processAttachment(type, body.user_id, spotifyId, itemQuery);
+    attachments = await processAttachment("spotify", type, body.user_id, undefined, itemQuery);
   } catch (e) {
     if ("respond" in ctx) {
       await ctx.respond(e as any as string);
@@ -197,17 +204,11 @@ app.command("/artist", async (ctx) => {
   });
 });
 
-function toTitleCase(str: string) {
-  return str.replace(
-    /\w\S*/g,
-    text => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase()
-  );
-}
-
 const SPOTIFY_DIRECT_REGEX = /open\.spotify\.com\/(track|album)/
 const SPOTIFY_ID_REGEX = /(?<=open\.spotify.com\/(track|album)\/)((\w|\d)+)/
 const SPOTIFY_SHARE_REGEX = /spotify\.link\/\w+/
-const APPLE_MUSIC_REGEX = /music\.apple\.com\/\w+\/album\/([^\/]+)\/\d+\?i=\d+/
+const APPLE_MUSIC_REGEX = /music\.apple\.com\/\w+\/(song|album)/
+const APPLE_MUSIC_ID_REGEX = /(?<=music\.apple\.com\/\w+\/(song|album)\/(\w|-)+\/)(\d+)/
 
 app.event("link_shared", async (ctx) => {
   for (const link of ctx.event.links) {
@@ -241,7 +242,7 @@ app.event("link_shared", async (ctx) => {
       const songId = songIdRes[0];
 
       if (songId) {
-        const attachments = await processAttachment(type as "track" | "album", ctx.event.user, songId);
+        const attachments = await processAttachment("spotify", type as "track" | "album", ctx.event.user, songId);
 
         ctx.client.chat.unfurl({
           channel: ctx.event.channel,
@@ -253,10 +254,20 @@ app.event("link_shared", async (ctx) => {
         });
       }
     } else if (appleMusicMatch) {
-      const query = toTitleCase(appleMusicMatch[1].replace(/-/g, " "));
+      let type = appleMusicMatch[1];
+      const url = new URL(resolvedLink);
 
-      if (query) {
-        const attachments = await processAttachment("track", ctx.event.user, undefined, query);
+      let songId;
+      if (type === "album" && url.searchParams.has("i")) {
+        songId = url.searchParams.get("i")
+        type = "song"
+      } else {
+        const songIdRes = resolvedLink.match(APPLE_MUSIC_ID_REGEX) ?? [];
+        songId = songIdRes[0];
+      }
+
+      if (songId) {
+        const attachments = await processAttachment("appleMusic", type === "song" ? "track" : "album", ctx.event.user, songId);
 
         ctx.client.chat.unfurl({
           channel: ctx.event.channel,
