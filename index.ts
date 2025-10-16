@@ -222,7 +222,11 @@ app.event("link_shared", async (ctx) => {
         let location = shareResponse.headers.get("Location")
 
         if (location) {
-          spotifyDirectMatch = location.match(SPOTIFY_DIRECT_REGEX);
+          let redirectPageResponse = await fetch(location);
+
+          if (redirectPageResponse.ok) {
+            spotifyDirectMatch = (await redirectPageResponse.text()).match(SPOTIFY_DIRECT_REGEX);
+          }
         }
       }
     }
